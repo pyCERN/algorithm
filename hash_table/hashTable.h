@@ -3,6 +3,20 @@
 #include <vector>
 #include <string>
 #include <iostream>
+#include <cmath>
+
+size_t nextPrime(size_t x) {
+  x = (x % 2 == 0) ? x - 1 : x;
+  bool isPrime = false;
+  while (!isPrime && (x += 2)) {
+    isPrime = true;
+    for (int i = 3; isPrime && i <= static_cast<size_t>(std::sqrt(x)); i += 2) {
+      isPrime = (x % i != 0);
+      // std::cout << x << ", " << i << ", " << isPrime << std::endl;
+    }
+  }
+  return x;
+}
 
 // Interface
 template <typename HashedObj>
@@ -12,12 +26,13 @@ public:
 
   virtual void makeEmpty() = 0;
   virtual bool insert(const HashedObj& x) = 0;
+  virtual bool insert(HashedObj&& x) = 0;
   virtual bool remove(const HashedObj& x) = 0;
 
   virtual ~HashTable() = default;
 
 private:
-  // virtual void rehash() = 0;
+  virtual void rehash() = 0;
   virtual size_t myhash(const HashedObj& x) const = 0;
 };
 
@@ -31,9 +46,9 @@ struct hash<int> {
   size_t operator()(int key) const { return key; }
 };
 
-// /*
-//   An implementation of Separate chaining hash table.
-// */
+/*
+  An implementation of Separate chaining hash table.
+*/
 template <typename HashedObj>
 class SeparateChainingHashTable : public HashTable<HashedObj> {
 public:
@@ -45,13 +60,14 @@ public:
 
   void makeEmpty() override;
   bool insert(const HashedObj& x) override;
+  bool insert(HashedObj&& x) override;
   bool remove(const HashedObj& x) override;
 
 private:
   std::vector<std::vector<HashedObj>> objVectors;
   int currentSize { 0 };
 
-  // void rehash() override;
+  void rehash() override;
   size_t myhash(const HashedObj& x) const override;
 };
 
@@ -70,13 +86,14 @@ public:
 
   void makeEmpty() override;
   bool insert(const HashedObj& x) override;
+  bool insert(HashedObj&& x) override;
   bool remove(const HashedObj& x) override;
 
   enum CellStatus { EMPTY, OCCUPIED, DELETED }; // DELETED is for lazy deletion for successful probe operaiton after remove.
 
   void print() {
     for (auto& x : objVector) {
-      if (x.status == EMPTY) std::cout << x.obj << "\t" << "EMPTY\n";
+      if (x.status == EMPTY) std::cout << "N/A" << "\t" << "EMPTY\n";
       else if (x.status == OCCUPIED) std::cout << x.obj << "\t" << "OCCUPIED\n";
       else std::cout << x.obj << "\t" << "DELETED\n";
     }
@@ -95,13 +112,24 @@ private:
   std::vector<HashedObjAndStatus> objVector;
   int currentSize { 0 };
 
-  // void rehash() override;
+  void rehash() override;
   size_t myhash(const HashedObj& x) const override;
   size_t collisionResolution(size_t i) const { return i; }
   size_t probe(const HashedObj& x) const;
 };
 
-// Implementation
+template <typename HashedObj>
+void SeparateChainingHashTable<HashedObj>::rehash() {
+  std::vector<std::vector<HashedObj>> oldVec(objVectors.size());
+
+  objVectors.resize(nextPrime(2 * objVectors.size()));
+  makeEmpty();
+
+  for (auto& vec : oldVec)
+    insert(std::move(vec));
+}
+
+// // Separate Chaining Hash Table
 template <typename HashedObj>
 size_t SeparateChainingHashTable<HashedObj>::myhash(const HashedObj& x) const {
   static hash<HashedObj> hf;
@@ -116,6 +144,7 @@ bool SeparateChainingHashTable<HashedObj>::contains(const HashedObj& x) const {
 
 template <typename HashedObj>
 void SeparateChainingHashTable<HashedObj>::makeEmpty() {
+  currentSize = 0;
   for (auto& objVector : objVectors)
     objVector.clear();
 }
@@ -126,8 +155,8 @@ bool SeparateChainingHashTable<HashedObj>::insert(const HashedObj& x) {
   if (std::find(whichVector.begin(), whichVector.end(), x) != whichVector.end())
     return false;
   whichVector.push_back(x);
-  // if (++currentSize > objVectors.size())
-  //   rehash();
+  if (++currentSize > objVectors.size())
+    rehash();
   return true;
 }
 
@@ -142,10 +171,24 @@ bool SeparateChainingHashTable<HashedObj>::remove(const HashedObj& x) {
   return true;
 }
 
+// Linear Probing Hash Table
 template <typename HashedObj>
 size_t LinearProbingHashTable<HashedObj>::myhash(const HashedObj& x) const {
   static hash<HashedObj> hf;
   return hf(x) % objVector.size();
+}
+
+template <typename HashedObj>
+void LinearProbingHashTable<HashedObj>::rehash() {
+  std::vector<HashedObjAndStatus> oldVec { objVector };
+
+  objVector.resize(nextPrime(2 * objVector.size()));
+  makeEmpty();
+
+  for (auto& hashedObj : oldVec) {
+    if (hashedObj.status == OCCUPIED)
+      insert(std::move(hashedObj.obj));
+  }
 }
 
 template <typename HashedObj>
@@ -181,9 +224,26 @@ bool LinearProbingHashTable<HashedObj>::insert(const HashedObj& x) {
     objVector[pos].status = OCCUPIED;
     isInserted = true;
   }
+  
+  if (++currentSize > objVector.size() / 2)
+    rehash();
 
-  // if (++currentSize > objVector.size() / 2)
-  //   rehash();
+  return isInserted;
+}
+
+template <typename HashedObj>
+bool LinearProbingHashTable<HashedObj>::insert(HashedObj&& x) {
+  size_t pos = probe(x);
+  bool isInserted = false;
+
+  if (objVector[pos].status != OCCUPIED) {
+    objVector[pos].obj = std::move(x);
+    objVector[pos].status = OCCUPIED;
+    isInserted = true;
+  }
+
+  if (++currentSize > objVector.size() / 2)
+    rehash();
 
   return isInserted;
 }
