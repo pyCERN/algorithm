@@ -1,26 +1,51 @@
 #include "hashTable.h"
+#include <algorithm>
+#include <cmath>
+#include <iostream>
 
-template <typename HashedObj>
-size_t SeparateChainingHashTable<HashedObj>::myhash(const HashedObj& x) const {
-  static hash<HashedObj> hf;
+int nextPrime(int x) {
+  x = (x % 2 == 0) ? x - 1 : x;
+  bool isPrime = false;
+  while (!isPrime && (x += 2)) {
+    isPrime = true;
+    for (int i = 3; isPrime && i <= static_cast<int>(std::sqrt(x)); i += 2) {
+      isPrime = (x % i != 0);
+    }
+  }
+  return x;
+}
+
+void SeparateChainingHashTable::rehash() {
+  std::vector<std::vector<int>> oldVec(objVectors.size());
+
+  objVectors.resize(nextPrime(2 * objVectors.size()));
+  makeEmpty();
+
+  for (auto& vec : oldVec) {
+    for (auto& obj : vec)
+      insert(obj);
+  }
+}
+
+// Separate Chaining Hash Table
+int SeparateChainingHashTable::myhash(int x) const {
+  static hash hf;
   return hf(x) % objVectors.size();
 }
 
-template <typename HashedObj>
-bool SeparateChainingHashTable<HashedObj>::contains(const HashedObj& x) const {
-  auto& whichVector = objVectors[myhash<HashedObj>(x)];
-  return std::find(whichVector.begin(), whichVector.end(), x) != objVectors.end();
+bool SeparateChainingHashTable::contains(int x) const {
+  auto& whichVector = objVectors[myhash(x)];
+  return std::find(whichVector.begin(), whichVector.end(), x) != whichVector.end();
 }
 
-template <typename HashedObj>
-void SeparateChainingHashTable<HashedObj>::makeEmpty() {
+void SeparateChainingHashTable::makeEmpty() {
+  currentSize = 0;
   for (auto& objVector : objVectors)
     objVector.clear();
 }
 
-template <typename HashedObj>
-bool SeparateChainingHashTable<HashedObj>::insert(const HashedObj& x) {
-  auto& whichVector = objVectors[myhash<HashedObj>(x)];
+bool SeparateChainingHashTable::insert(int x) {
+  auto& whichVector = objVectors[myhash(x)];
   if (std::find(whichVector.begin(), whichVector.end(), x) != whichVector.end())
     return false;
   whichVector.push_back(x);
@@ -29,9 +54,8 @@ bool SeparateChainingHashTable<HashedObj>::insert(const HashedObj& x) {
   return true;
 }
 
-template <typename HashedObj>
-bool SeparateChainingHashTable<HashedObj>::remove(const HashedObj& x) {
-  auto& whichVector = objVectors[myhash<HashedObj>(x)];
+bool SeparateChainingHashTable::remove(int x) {
+  auto& whichVector = objVectors[myhash(x)];
   auto it = std::find(whichVector.begin(), whichVector.end(), x);
   if (it == whichVector.end())
     return false;
@@ -40,34 +64,76 @@ bool SeparateChainingHashTable<HashedObj>::remove(const HashedObj& x) {
   return true;
 }
 
-template <typename HashedObj>
-size_t LinearProbingHashTable<HashedObj>::myhash(const HashedObj& x) const {
-  static hash<HashedObj> hf;
+// Linear Probing Hash Table
+int LinearProbingHashTable::myhash(int x) const {
+  static hash hf;
   return hf(x) % objVector.size();
 }
 
-template <typename HashedObj>
-bool LinearProbingHashTable<HashedObj>::contains(const HashedObj& x) const {
-  size_t pos = myhash(x), oldPos = pos;
-  size_t i = 0;
-  while (objVector[pos] != x || objVector[pos].status == EMPTY) {
-    pos = (oldPos + probe(i++)) % objVector.size();
-    continue;
+void LinearProbingHashTable::rehash() {
+  std::vector<HashedObjAndStatus> oldVec { objVector };
+
+  objVector.resize(nextPrime(2 * objVector.size()));
+  makeEmpty();
+
+  for (auto& hashedObj : oldVec) {
+    if (hashedObj.status == OCCUPIED)
+      insert(std::move(hashedObj.obj));
   }
 }
 
-template <typename HashedObj>
-bool LinearProbingHashTable<HashedObj>::insert(const HashedObj& x) {
-  size_t key = myhash<HashedObj>(x);
-  
+int LinearProbingHashTable::probe(int x) const {
+  int pos = myhash(x), oldPos = pos;
+  int i = 0;
+  while (objVector[pos].obj != x && objVector[pos].status != EMPTY) {
+    pos = (oldPos + collisionResolution(i++)) % objVector.size();
+  }
+  return pos;
 }
 
-template <typename HashedObj>
-bool LinearProbingHashTable<HashedObj>::remove(const HashedObj& x) {
-  auto& whichVector = objVectors[myhash<HashedObj>(x)];
-  auto it = std::find(whichVector.begin(), whichVector.end(), x);
-  if (it == whichVector.end())
-    return false;
-  whichVector.erase(it);
-  return true;
+bool LinearProbingHashTable::contains(int x) const {
+  int pos = probe(x);
+  return objVector[pos].obj == x;
+}
+
+void LinearProbingHashTable::makeEmpty() {
+  currentSize = 0;
+  for (size_t i = 0; i < objVector.size(); i++)
+    objVector[i].status = EMPTY;
+}
+
+bool LinearProbingHashTable::insert(int x) {
+  int pos = probe(x);
+  bool isInserted = false;
+
+  if (objVector[pos].status != OCCUPIED) {
+    objVector[pos].obj = x;
+    objVector[pos].status = OCCUPIED;
+    isInserted = true;
+  }
+  
+  if (++currentSize > objVector.size() / 2)
+    rehash();
+
+  return isInserted;
+}
+
+bool LinearProbingHashTable::remove(int x) {
+  int pos = probe(x);
+  bool isRemoved = false;
+
+  if (objVector[pos].status == OCCUPIED) {
+    objVector[pos].status = DELETED;
+    isRemoved = true;
+  }
+
+  return isRemoved;
+}
+
+void LinearProbingHashTable::print() const {
+  for (auto& x : objVector) {
+    if (x.status == EMPTY) std::cout << "N/A" << "\t" << "EMPTY\n";
+    else if (x.status == OCCUPIED) std::cout << x.obj << "\t" << "OCCUPIED\n";
+    else std::cout << x.obj << "\t" << "DELETED\n";
+  }
 }
